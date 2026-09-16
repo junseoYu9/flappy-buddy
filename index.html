@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flappy Buddy</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: grid; place-items: center;
+      font-family: ui-rounded, "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(circle at 50% 15%, #314f86, #15172e 68%);
+    }
+    .game-shell { width: min(94vw, 450px); position: relative; }
+    canvas { width: 100%; height: auto; display: block; border: 4px solid #ffffff40; border-radius: 25px; box-shadow: 0 20px 60px #0008; touch-action: manipulation; }
+    .instructions { color: #eaf6ff; text-align: center; font-weight: 700; font-size: .88rem; margin: 14px 0 0; opacity: .9; }
+    .sound { position: absolute; top: 14px; right: 14px; border: 0; border-radius: 50%; width: 40px; height: 40px; background: #ffffffd9; font-size: 1.1rem; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main class="game-shell">
+    <canvas id="game" width="450" height="720" aria-label="Flappy Buddy game"></canvas>
+    <button class="sound" id="sound" aria-label="소리 켜기/끄기">🔊</button>
+    <p class="instructions">스페이스바 · ↑ · 클릭 · 터치로 버디를 날려보세요</p>
+  </main>
+  <script>
+    const canvas = document.querySelector('#game');
+    const ctx = canvas.getContext('2d');
+    const soundButton = document.querySelector('#sound');
+    const W = canvas.width, H = canvas.height;
+    let best = Number(localStorage.getItem('flappyBuddyBest') || 0);
+    let muted = false, audioCtx;
+    let state, score, spawnTimer, bird, pipes, clouds, lastTime;
+
+    function reset() {
+      state = 'ready';
+      score = 0;
+      spawnTimer = 0;
+      bird = { x: 120, y: H * .43, vy: 0, rotation: 0, wing: 0 };
+      pipes = [];
+      clouds = Array.from({ length: 5 }, (_, i) => ({ x: i * 115 + 20, y: 65 + (i * 73) % 260, size: 16 + (i % 3) * 8 }));
+      lastTime = performance.now();
+    }
+    function beep(freq, duration = .07, type = 'sine') {
+      if (muted) return;
+      audioCtx ??= new AudioContext();
+      const osc = audioCtx.createOscillator(), gain = audioCtx.createGain();
+      osc.type = type; osc.frequency.value = freq; gain.gain.setValueAtTime(.06, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(.001, audioCtx.currentTime + duration);
+      osc.connect(gain).connect(audioCtx.destination); osc.start(); osc.stop(audioCtx.currentTime + duration);
+    }
+    function flap() {
+      if (state === 'over') reset();
+      if (state === 'ready') state = 'playing';
+      bird.vy = -8.2; bird.wing = 1; beep(620, .08, 'triangle');
+    }
+    function addPipe() {
+      const gap = Math.max(145, 190 - score * 2);
+      const top = 110 + Math.random() * (H - 285 - gap);
+      pipes.push({ x: W + 25, top, gap, scored: false });
+    }
+    function circleRect(cx, cy, r, x, y, w, h) {
+      const px = Math.max(x, Math.min(cx, x + w)), py = Math.max(y, Math.min(cy, y + h));
+      return (cx - px) ** 2 + (cy - py) ** 2 < r ** 2;
+    }
+    function gameOver() {
+      if (state !== 'playing') return;
+      state = 'over'; beep(150, .18, 'sawtooth');
+      if (score > best) { best = score; localStorage.setItem('flappyBuddyBest', best); }
+    }
+    function update(dt) {
+      clouds.forEach(c => { c.x -= 12 * dt; if (c.x < -90) c.x = W + 60; });
+      if (state !== 'playing') { bird.y = H * .43 + Math.sin(performance.now() / 330) * 8; bird.wing = (Math.sin(performance.now() / 90) + 1) / 2; return; }
+      bird.vy += 24 * dt; bird.y += bird.vy; bird.rotation = Math.min(Math.PI / 2, bird.vy / 15); bird.wing = (bird.wing + dt * 10) % 2;
+      spawnTimer += dt;
+      if (spawnTimer > 1.55) { addPipe(); spawnTimer = 0; }
+      pipes.forEach(p => {
+        p.x -= (150 + Math.min(score * 3, 50)) * dt;
+        if (!p.scored && p.x + 68 < bird.x) { p.scored = true; score++; beep(930, .06, 'square'); }
+        if (circleRect(bird.x, bird.y, 17, p.x, 0, 68, p.top) || circleRect(bird.x, bird.y, 17, p.x, p.top + p.gap, 68, H)) gameOver();
+      });
+      pipes = pipes.filter(p => p.x > -80);
+      if (bird.y < 18 || bird.y > H - 62) gameOver();
+    }
+    function roundedRect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill(); }
+    function drawCloud(c) { ctx.fillStyle = '#fff5'; ctx.beginPath(); ctx.arc(c.x, c.y, c.size, 0, Math.PI * 2); ctx.arc(c.x + c.size, c.y + 4, c.size * .75, 0, Math.PI * 2); ctx.arc(c.x - c.size, c.y + 7, c.size * .65, 0, Math.PI * 2); ctx.fill(); }
+    function drawPipe(p) {
+      ctx.fillStyle = '#7454d8'; roundedRect(p.x, -15, 68, p.top + 15, 12); roundedRect(p.x - 6, p.top - 27, 80, 29, 8);
+      roundedRect(p.x, p.top + p.gap, 68, H, 12); roundedRect(p.x - 6, p.top + p.gap, 80, 29, 8);
+      ctx.fillStyle = '#b8a7ff55'; ctx.fillRect(p.x + 10, 0, 9, p.top - 28); ctx.fillRect(p.x + 10, p.top + p.gap + 28, 9, H);
+    }
+    function drawBird() {
+      ctx.save(); ctx.translate(bird.x, bird.y); ctx.rotate(bird.rotation);
+      ctx.fillStyle = '#ffd447'; ctx.beginPath(); ctx.ellipse(0, 0, 24, 19, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#f5a731'; ctx.beginPath(); ctx.ellipse(-8, 8 + Math.sin(bird.wing * Math.PI) * 5, 13, 8, -.5, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#ff8b5e'; ctx.beginPath(); ctx.moveTo(20, 1); ctx.lineTo(36, 7); ctx.lineTo(20, 12); ctx.fill();
+      ctx.fillStyle = 'white'; ctx.beginPath(); ctx.arc(8, -8, 8, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#27223e'; ctx.beginPath(); ctx.arc(10, -8, 3, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+    }
+    function label(text, y, size = 34) { ctx.textAlign = 'center'; ctx.font = `900 ${size}px ui-rounded, sans-serif`; ctx.lineWidth = 6; ctx.strokeStyle = '#27223e88'; ctx.strokeText(text, W / 2, y); ctx.fillStyle = 'white'; ctx.fillText(text, W / 2, y); }
+    function draw() {
+      const sky = ctx.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, '#6ac6f5'); sky.addColorStop(1, '#d2edff'); ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+      clouds.forEach(drawCloud); pipes.forEach(drawPipe);
+      ctx.fillStyle = '#8dcf63'; ctx.fillRect(0, H - 55, W, 55); ctx.fillStyle = '#67ad4c'; for (let x = 0; x < W; x += 24) ctx.fillRect(x, H - 55, 13, 8);
+      drawBird();
+      if (state === 'playing') label(score, 70, 44);
+      if (state === 'ready') { label('FLAPPY BUDDY', 160, 35); label('탭하여 시작!', 570, 23); }
+      if (state === 'over') { ctx.fillStyle = '#24213bcc'; roundedRect(47, 205, W - 94, 235, 22); label('게임 오버!', 270, 34); label(`점수  ${score}`, 325, 27); label(`최고  ${best}`, 367, 23); label('탭하여 다시 시작', 410, 18); }
+    }
+    function loop(now) { const dt = Math.min((now - lastTime) / 1000, .04); lastTime = now; update(dt); draw(); requestAnimationFrame(loop); }
+    addEventListener('keydown', e => { if (['Space', 'ArrowUp'].includes(e.code)) { e.preventDefault(); flap(); } });
+    canvas.addEventListener('pointerdown', flap);
+    soundButton.addEventListener('click', e => { e.stopPropagation(); muted = !muted; soundButton.textContent = muted ? '🔇' : '🔊'; });
+    reset(); requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
