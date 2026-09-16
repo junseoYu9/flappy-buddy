@@ -31,11 +31,13 @@
     const W = canvas.width, H = canvas.height;
     let best = Number(localStorage.getItem('flappyBuddyBest') || 0);
     let muted = false, audioCtx;
-    let state, score, spawnTimer, bird, pipes, clouds, lastTime;
+    let state, score, lives, invincible, spawnTimer, bird, pipes, clouds, lastTime;
 
     function reset() {
       state = 'ready';
       score = 0;
+      lives = 3;
+      invincible = 0;
       spawnTimer = 0;
       bird = { x: 120, y: H * .43, vy: 0, rotation: 0, wing: 0 };
       pipes = [];
@@ -72,19 +74,29 @@
       state = 'over'; beep(150, .18, 'sawtooth');
       if (score > best) { best = score; localStorage.setItem('flappyBuddyBest', best); }
     }
+    function takeHit() {
+      if (state !== 'playing' || invincible > 0) return;
+      lives--;
+      if (lives <= 0) { gameOver(); return; }
+      invincible = 1.8;
+      bird.y = Math.max(38, Math.min(H - 88, bird.y));
+      bird.vy = -5.5;
+      beep(260, .14, 'sawtooth');
+    }
     function update(dt) {
       clouds.forEach(c => { c.x -= 12 * dt; if (c.x < -90) c.x = W + 60; });
       if (state !== 'playing') { bird.y = H * .43 + Math.sin(performance.now() / 330) * 8; bird.wing = (Math.sin(performance.now() / 90) + 1) / 2; return; }
+      invincible = Math.max(0, invincible - dt);
       bird.vy += 24 * dt; bird.y += bird.vy; bird.rotation = Math.min(Math.PI / 2, bird.vy / 15); bird.wing = (bird.wing + dt * 10) % 2;
       spawnTimer += dt;
       if (spawnTimer > 1.55) { addPipe(); spawnTimer = 0; }
       pipes.forEach(p => {
         p.x -= (150 + Math.min(score * 3, 50)) * dt;
         if (!p.scored && p.x + 68 < bird.x) { p.scored = true; score++; beep(930, .06, 'square'); }
-        if (circleRect(bird.x, bird.y, 17, p.x, 0, 68, p.top) || circleRect(bird.x, bird.y, 17, p.x, p.top + p.gap, 68, H)) gameOver();
+        if (circleRect(bird.x, bird.y, 17, p.x, 0, 68, p.top) || circleRect(bird.x, bird.y, 17, p.x, p.top + p.gap, 68, H)) takeHit();
       });
       pipes = pipes.filter(p => p.x > -80);
-      if (bird.y < 18 || bird.y > H - 62) gameOver();
+      if (bird.y < 18 || bird.y > H - 62) takeHit();
     }
     function roundedRect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill(); }
     function drawCloud(c) { ctx.fillStyle = '#fff5'; ctx.beginPath(); ctx.arc(c.x, c.y, c.size, 0, Math.PI * 2); ctx.arc(c.x + c.size, c.y + 4, c.size * .75, 0, Math.PI * 2); ctx.arc(c.x - c.size, c.y + 7, c.size * .65, 0, Math.PI * 2); ctx.fill(); }
@@ -94,6 +106,7 @@
       ctx.fillStyle = '#b8a7ff55'; ctx.fillRect(p.x + 10, 0, 9, p.top - 28); ctx.fillRect(p.x + 10, p.top + p.gap + 28, 9, H);
     }
     function drawBird() {
+      if (invincible > 0 && Math.floor(invincible * 12) % 2 === 0) return;
       ctx.save(); ctx.translate(bird.x, bird.y); ctx.rotate(bird.rotation);
       ctx.fillStyle = '#ffd447'; ctx.beginPath(); ctx.ellipse(0, 0, 24, 19, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#f5a731'; ctx.beginPath(); ctx.ellipse(-8, 8 + Math.sin(bird.wing * Math.PI) * 5, 13, 8, -.5, 0, Math.PI * 2); ctx.fill();
@@ -106,7 +119,12 @@
       clouds.forEach(drawCloud); pipes.forEach(drawPipe);
       ctx.fillStyle = '#8dcf63'; ctx.fillRect(0, H - 55, W, 55); ctx.fillStyle = '#67ad4c'; for (let x = 0; x < W; x += 24) ctx.fillRect(x, H - 55, 13, 8);
       drawBird();
-      if (state === 'playing') label(score, 70, 44);
+      if (state === 'playing') {
+        label(score, 70, 44);
+        ctx.textAlign = 'left'; ctx.font = '900 23px ui-rounded, sans-serif'; ctx.fillStyle = '#fff';
+        ctx.fillText(`♥ ${lives}`, 20, 48);
+        if (invincible > 0) { ctx.font = '800 15px ui-rounded, sans-serif'; ctx.fillText('무적!', 20, 72); }
+      }
       if (state === 'ready') { label('FLAPPY BUDDY', 160, 35); label('탭하여 시작!', 570, 23); }
       if (state === 'over') { ctx.fillStyle = '#24213bcc'; roundedRect(47, 205, W - 94, 235, 22); label('게임 오버!', 270, 34); label(`점수  ${score}`, 325, 27); label(`최고  ${best}`, 367, 23); label('탭하여 다시 시작', 410, 18); }
     }
