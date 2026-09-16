@@ -56,7 +56,10 @@
       bird.vy = -8.2; bird.wing = 1; beep(620, .08, 'triangle');
     }
     function addPipe() {
-      const gap = Math.max(145, 190 - score * 2);
+      // Every gate has a different opening. High scores shift the whole range tighter.
+      const baseGap = Math.max(142, 202 - score * 2.2);
+      const variation = 28 + Math.min(score * 1.1, 22);
+      const gap = Math.round(baseGap + (Math.random() * 2 - 1) * variation);
       const top = 110 + Math.random() * (H - 285 - gap);
       pipes.push({ x: W + 25, top, gap, scored: false });
     }
